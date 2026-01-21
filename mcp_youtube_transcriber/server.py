@@ -122,7 +122,7 @@ async def get_transcript(
     languages = [lang]
 
     try:
-        transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcripts = YouTubeTranscriptApi().list(video_id)
     except TranscriptsDisabled:
         return {
             "video_id": video_id,
@@ -168,7 +168,25 @@ async def get_transcript(
         }
 
     segments = transcript_obj.fetch()
-    transcript_text = " ".join(seg["text"].strip() for seg in segments if seg.get("text"))
+
+    def _seg_text(seg: Any) -> str:
+        if isinstance(seg, dict):
+            return seg.get("text", "")
+        return getattr(seg, "text", "") or ""
+
+    def _seg_start(seg: Any) -> float:
+        if isinstance(seg, dict):
+            return float(seg.get("start", 0.0))
+        return float(getattr(seg, "start", 0.0) or 0.0)
+
+    def _seg_duration(seg: Any) -> float:
+        if isinstance(seg, dict):
+            return float(seg.get("duration", 0.0))
+        return float(getattr(seg, "duration", 0.0) or 0.0)
+
+    transcript_text = " ".join(
+        _seg_text(seg).strip() for seg in segments if _seg_text(seg).strip()
+    )
 
     result: Dict[str, Any] = {
         "video_id": video_id,
@@ -180,9 +198,9 @@ async def get_transcript(
     if include_timestamps:
         result["segments"] = [
             {
-                "start": float(seg.get("start", 0.0)),
-                "duration": float(seg.get("duration", 0.0)),
-                "text": seg.get("text", ""),
+                "start": _seg_start(seg),
+                "duration": _seg_duration(seg),
+                "text": _seg_text(seg),
             }
             for seg in segments
         ]
