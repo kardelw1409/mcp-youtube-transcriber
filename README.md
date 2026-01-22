@@ -3,7 +3,7 @@
 `youtube_transcriber` is a minimal MCP server that provides:
 
 - `search_videos(query, limit=5, sort="relevance")` – YouTube search via `yt-dlp`
-- `get_transcript(url_or_id, lang="en", prefer_auto=True, include_timestamps=False)` – transcripts via `youtube-transcript-api`
+- `get_transcript(url_or_id, lang="en", prefer_auto=True, include_timestamps=False, force_refresh=False)` – transcripts via `youtube-transcript-api`
 
 It is intentionally “dumb”: no RAG, no summarization, no music analysis. It just returns metadata and transcripts.
 
@@ -60,6 +60,8 @@ search_videos(query: str, limit: int = 5, sort: str = "relevance") -> dict
 - `limit` – number of items (1..10, clamped).
 - `sort` – `"relevance"`, `"views"`, or `"date"`.
 
+- `force_refresh` â€“ if `True`, bypass cache and re-fetch from YouTube.
+
 Behavior:
 
 - Uses `yt-dlp` with `default_search="ytsearch"` and `extract_flat=True`.
@@ -86,6 +88,7 @@ get_transcript(
     lang: str = "en",
     prefer_auto: bool = True,
     include_timestamps: bool = False,
+    force_refresh: bool = False,
 ) -> dict
 ```
 
@@ -106,10 +109,30 @@ Behavior:
   - `transcript_text` – a single concatenated string
   - `segments` – optional, when `include_timestamps=True`:
     - `{start: float, duration: float, text: str}`
+  - `cache`:
+    - `hit` (bool)
+    - `age_seconds` (int or null)
+    - `ttl_seconds` (int)
+    - `method` (string)
+  - `source` – `"cache"` or `"network"`
   - `metadata` (when available):
     - `video_id`, `title`, `channel`, `upload_date`, `duration_seconds`, `view_count`, `url`
 - If no transcript is available:
   - `error` set to `"No transcript available"` or a more specific message (e.g. `"No transcript available (disabled)"`).
+  - `cache` included with `hit=false`.
+
+## Cache + rate limiting
+
+`get_transcript` uses a local SQLite cache keyed by `(video_id, language, kind)` where `kind` is
+`text` or `segments`. Cached results are returned by default and will not re-fetch from YouTube
+unless `force_refresh=true`.
+
+The fetch method is auto-detected at startup and policy is applied accordingly:
+
+- `YT_TRANSCRIPT_API` (current implementation): TTL 60 days, min interval 8s + jitter, exponential
+  backoff on 429, and a 15-minute cooldown after repeated 429s.
+
+Cache metadata is always returned in the response to help clients decide whether to refresh.
 
 ## Internal helpers
 
